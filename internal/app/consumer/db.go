@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ozonmp/omp-demo-api/internal/app/repo"
-	"github.com/ozonmp/omp-demo-api/internal/model"
+	"github.com/ozonmp/cnm-serial-api/internal/app/repo"
+	"github.com/ozonmp/cnm-serial-api/internal/model"
 )
 
 type Consumer interface {
@@ -15,7 +15,7 @@ type Consumer interface {
 
 type consumer struct {
 	n      uint64
-	events chan<- model.SubdomainEvent
+	events chan<- model.SerialEvent
 
 	repo repo.EventRepo
 
@@ -28,7 +28,7 @@ type consumer struct {
 
 type Config struct {
 	n         uint64
-	events    chan<- model.SubdomainEvent
+	events    chan<- model.SerialEvent
 	repo      repo.EventRepo
 	batchSize uint64
 	timeout   time.Duration
@@ -39,7 +39,7 @@ func NewDbConsumer(
 	batchSize uint64,
 	consumeTimeout time.Duration,
 	repo repo.EventRepo,
-	events chan<- model.SubdomainEvent) Consumer {
+	events chan<- model.SerialEvent) Consumer {
 
 	wg := &sync.WaitGroup{}
 	done := make(chan bool)
@@ -57,10 +57,14 @@ func NewDbConsumer(
 
 func (c *consumer) Start() {
 	for i := uint64(0); i < c.n; i++ {
-		c.wg.Add(1)
+		if c.timeout <= 0 {
+			break
+		}
 
+		c.wg.Add(1)
 		go func() {
 			defer c.wg.Done()
+
 			ticker := time.NewTicker(c.timeout)
 			for {
 				select {
@@ -72,6 +76,7 @@ func (c *consumer) Start() {
 					for _, event := range events {
 						c.events <- event
 					}
+
 				case <-c.done:
 					return
 				}

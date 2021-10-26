@@ -1,11 +1,12 @@
 package model
 
-type Subdomain struct {
-	ID uint64
+type Serial struct {
+	ID    uint64
+	Title string
+	Year  uint
 }
 
 type EventType uint8
-
 type EventStatus uint8
 
 const (
@@ -13,13 +14,13 @@ const (
 	Updated
 	Removed
 
-	Deferred EventStatus = iota
+	Deffered EventStatus = iota
 	Processed
 )
 
-type SubdomainEvent struct {
+type SerialEvent struct {
 	ID     uint64
 	Type   EventType
 	Status EventStatus
-	Entity *Subdomain
+	Entity *Serial
 }

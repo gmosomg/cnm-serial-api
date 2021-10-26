@@ -1,6 +1,6 @@
 .PHONY: build
 build:
-	go build cmd/omp-demo-api/main.go
+	go build cmd/cnm-serial-api/main.go
 
 .PHONY: test
 test:
