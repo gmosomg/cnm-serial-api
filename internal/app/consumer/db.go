@@ -74,7 +74,9 @@ func (c *consumer) Start() {
 						continue
 					}
 					for _, event := range events {
-						c.events <- event
+						if event.Type == model.Created {
+							c.events <- event
+						}
 					}
 
 				case <-c.done:
