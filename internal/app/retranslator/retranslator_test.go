@@ -83,7 +83,7 @@ func TestStart(t *testing.T) {
 
 		retranslator := NewRetranslator(cfg)
 		retranslator.Start()
-		time.Sleep(time.Millisecond * 200)
+		time.Sleep(time.Millisecond * 1000)
 		retranslator.Close()
 	})
 

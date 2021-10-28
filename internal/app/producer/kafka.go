@@ -3,6 +3,7 @@ package producer
 import (
 	"log"
 	"sync"
+	"time"
 
 	"github.com/ozonmp/cnm-serial-api/internal/app/repo"
 	"github.com/ozonmp/cnm-serial-api/internal/app/sender"
@@ -59,54 +60,80 @@ func (p *producer) Start() {
 		go func() {
 			defer p.wg.Done()
 
+			runCleaner := make(chan int, 3)
+			runUpdater := make(chan int, 3)
+
 			cleanerBuf := NewMtxBuffer()
 			updaterBuf := NewMtxBuffer()
+
+			bufTimeout := 1 * time.Second
+			ticker := time.NewTicker(bufTimeout)
 
 			for {
 				select {
 
 				case event := <-p.events:
 					if err := p.sender.Send(&event); err != nil {
-						p.workerPool.Submit(func() {
-							// ... cleaner (refer to diagram)
-							// remove db records
-							cleanerBuf.Put(event.ID)
-							cleanIDs := cleanerBuf.Get()
-
-							if len(cleanIDs) < 1 {
-								return
-							}
-
-							if err := p.repo.Remove(cleanIDs); err == nil {
-								return
-							}
-							log.Println("Err: repo.Remove failed:", err)
-							// TODO process errs: break or retry
-							// put ids to updaters for now
-							updaterBuf.Add(cleanIDs)
-						})
+						if cleanerBuf.Put(event.ID) > 100 {
+							runCleaner <- 1
+						}
 					} else {
-						p.workerPool.Submit(func() {
-							// ... updater (refer to diagram)
-							// update db records
-							updaterBuf.Put(event.ID)
-							updateIDs := updaterBuf.Get()
-
-							if len(updateIDs) < 1 {
-								return
-							}
-
-							if err := p.repo.Unlock(updateIDs); err == nil {
-								return
-							}
-							log.Println("Err: repo.Unlock failed:", err)
-							// TODO process errs: break or retry
-							// return ids to updaters for now
-							updaterBuf.Add(updateIDs)
-						})
+						if updaterBuf.Put(event.ID) > 100 {
+							runUpdater <- 1
+						}
 					}
 
+				case <-runCleaner:
+					p.workerPool.Submit(func() {
+						// ... cleaner (refer to diagram)
+						// remove db records
+						cleanIDs := cleanerBuf.Get()
+						if len(cleanIDs) < 1 {
+							return
+						}
+
+						if err := p.repo.Remove(cleanIDs); err == nil {
+							return
+						} else {
+							log.Println("Err: repo.Remove failed:", err)
+							// Perfect world situation - No errors
+							// TODO process errs: break or retry
+							// put ids to updaters for now:
+							// updaterBuf.Add(cleanIDs)
+							// runUpdater <- 1
+						}
+					})
+
+				case <-runUpdater:
+					p.workerPool.Submit(func() {
+						// ... updater (refer to diagram)
+						// update db records
+						updateIDs := updaterBuf.Get()
+						if len(updateIDs) < 1 {
+							return
+						}
+
+						if err := p.repo.Unlock(updateIDs); err == nil {
+							return
+						} else {
+							log.Println("Err: repo.Unlock failed:", err)
+							// Perfect world situation - No errors
+							// TODO process errs: break or retry
+						}
+					})
+
+				case <-ticker.C:
+					// process all buffers by timeout
+					runCleaner <- 1
+					runUpdater <- 1
+
 				case <-p.done:
+					// stop event processing ?
+					// process all buffers ?
+					runCleaner <- 1
+					close(runCleaner)
+					runUpdater <- 1
+					close(runUpdater)
 					return
 				}
 			}
@@ -116,7 +143,6 @@ func (p *producer) Start() {
 }
 
 func (p *producer) Close() {
-	// p.workerPool.StopWait()
 	close(p.done)
 	p.wg.Wait()
 }
@@ -134,16 +160,18 @@ func NewMtxBuffer() *mtxBuffer {
 	}
 }
 
-func (m *mtxBuffer) Put(ids ...uint64) {
+func (m *mtxBuffer) Put(ids ...uint64) int {
 	m.mtx.Lock()
+	defer m.mtx.Unlock()
 	m.buffer = append(m.buffer, ids...)
-	m.mtx.Unlock()
+	return len(m.buffer)
 }
 
-func (m *mtxBuffer) Add(ids []uint64) {
+func (m *mtxBuffer) Add(ids []uint64) int {
 	m.mtx.Lock()
+	defer m.mtx.Unlock()
 	m.buffer = append(m.buffer, ids...)
-	m.mtx.Unlock()
+	return len(m.buffer)
 }
 
 func (m *mtxBuffer) Get() []uint64 {
