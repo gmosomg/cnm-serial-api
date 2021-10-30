@@ -99,7 +99,7 @@ func (p *producer) Start() {
 							// Perfect world situation - No errors
 							// TODO process errs: break or retry
 							// put ids to updaters for now:
-							// updaterBuf.Add(cleanIDs)
+							// updaterBuf.Put(cleanIDs...)
 							// runUpdater <- 1
 						}
 					})
@@ -161,13 +161,6 @@ func NewMtxBuffer() *mtxBuffer {
 }
 
 func (m *mtxBuffer) Put(ids ...uint64) int {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-	m.buffer = append(m.buffer, ids...)
-	return len(m.buffer)
-}
-
-func (m *mtxBuffer) Add(ids []uint64) int {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 	m.buffer = append(m.buffer, ids...)
